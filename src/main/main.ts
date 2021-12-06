@@ -11,19 +11,17 @@
 import 'core-js/stable';
 import 'regenerator-runtime/runtime';
 import path from 'path';
-import { app, BrowserWindow, shell, ipcMain } from 'electron';
-import { autoUpdater } from 'electron-updater';
-import log from 'electron-log';
-import MenuBuilder from './menu';
+import { app, BrowserWindow, ipcMain, Tray, Menu } from 'electron';
+// import log from 'electron-log';
 import { resolveHtmlPath } from './util';
 
-export default class AppUpdater {
-  constructor() {
-    log.transports.file.level = 'info';
-    autoUpdater.logger = log;
-    autoUpdater.checkForUpdatesAndNotify();
-  }
-}
+const RESOURCES_PATH = app.isPackaged
+  ? path.join(process.resourcesPath, 'assets')
+  : path.join(__dirname, '../../assets');
+
+const getAssetPath = (...paths: string[]): string => {
+  return path.join(RESOURCES_PATH, ...paths);
+};
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -58,24 +56,40 @@ const installExtensions = async () => {
     .catch(console.log);
 };
 
+const createTray = (): Tray => {
+  const appIcon = new Tray(getAssetPath('icon.ico'));
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Close',
+      click: () => {
+        app.quit();
+      },
+    },
+  ]);
+
+  appIcon.setToolTip('Idasen Control App');
+  appIcon.setContextMenu(contextMenu);
+  appIcon.on('click', () => {
+    mainWindow?.show();
+  });
+
+  return appIcon;
+};
+
 const createWindow = async () => {
   if (isDevelopment) {
     await installExtensions();
   }
 
-  const RESOURCES_PATH = app.isPackaged
-    ? path.join(process.resourcesPath, 'assets')
-    : path.join(__dirname, '../../assets');
-
-  const getAssetPath = (...paths: string[]): string => {
-    return path.join(RESOURCES_PATH, ...paths);
-  };
-
   mainWindow = new BrowserWindow({
     show: false,
-    width: 1024,
-    height: 728,
+    width: 1200,
+    height: 800,
     icon: getAssetPath('icon.png'),
+    transparent: true,
+    resizable: false,
+    center: true,
+    frame: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
@@ -87,29 +101,28 @@ const createWindow = async () => {
     if (!mainWindow) {
       throw new Error('"mainWindow" is not defined');
     }
-    if (process.env.START_MINIMIZED) {
-      mainWindow.minimize();
-    } else {
-      mainWindow.show();
-    }
+
+    mainWindow.minimize();
   });
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
+  // // Open urls in the user's browser
+  // mainWindow.webContents.on('new-window', (event, url) => {
+  //   event.preventDefault();
+  //   shell.openExternal(url);
+  // });
 
-  const menuBuilder = new MenuBuilder(mainWindow);
-  menuBuilder.buildMenu();
+  mainWindow.setMenu(null);
+  createTray();
 
-  // Open urls in the user's browser
-  mainWindow.webContents.on('new-window', (event, url) => {
+  mainWindow.on('blur', (event: Electron.Event) => {
     event.preventDefault();
-    shell.openExternal(url);
+    mainWindow?.hide();
   });
 
-  // Remove this if your app does not use auto updates
-  // eslint-disable-next-line
-  new AppUpdater();
+  mainWindow.on('restore', (event: Electron.Event) => {
+    event.preventDefault();
+    mainWindow?.show();
+  });
 };
 
 /**
